@@ -1,15 +1,13 @@
-FROM alpine:3.2
+FROM alpine:3.10
 MAINTAINER Phillip Clark <phillip@flitbit.com>
 
 COPY rootfs /
 
 RUN set -ex &&\
-    echo "http://dl-3.alpinelinux.org/alpine/edge/testing/" >> /etc/apk/repositories &&\
-    apk update && apk add --update stunnel &&\
+    printf "nameserver 1.1.1.1\nnameserver 8.8.8.8\nnameserver 8.8.4.4" > /etc/resolv.conf && \
+    apk update && apk add --update --no-cache stunnel &&\
     chmod +x /opt/run-stunnel.sh &&\
     rm -rf /tmp/* \
            /var/cache/apk/*
-
-EXPOSE 4442
 
 ENTRYPOINT ["/opt/run-stunnel.sh"]

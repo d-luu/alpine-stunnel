@@ -7,35 +7,27 @@ usage() {
 
 alpine-stunnel is a light utility container for creating secure tunnels. It builds on stunnel; learn more about stunnel on its home page: https://www.stunnel.org/index.html.
 
-Usage: docker run [DOCKER_OPTIONS] flitbit/alpine-stunnel -t <tls-dir> -c <connect-port> [-d]
+ENVIRONMENT VARIABLE OPTIONS:
 
-DOCKER_OPTIONS are documented at https://docs.docker.com/engine/reference/commandline/run/
+  CA_CERT   Required; specifies the path to the root certificate (CA)
 
-OPTIONS:
+  CERT      Required; specifies the path to the client certificate
+  
+  KEY       Required; specifies the path to the private key
 
-  -t   Required; specifies the directory containing a TLS key, certificate, and CA
-       certificate. The directory must be mounted using docker's --volume
-       option and must contain files with the following names:
+  ACCEPT    Optional; specifies the listen address. Defaults to 0.0.0.0:4442
 
-         ca.pem    - the CA's certificate
-         cert.pem  - the endpoint's certificate
-         key.pem   - the endpoint's key
+  CONNECT   Required; specifies the endpoint to connect to, in the form <host>:<port>.
 
-  -c  Required; specifies the endpoint to connect to, in the form <host>:<port>.
+  CLIENT    Optional; specifies that the connect endpoint is a daemon that this secure
+            tunnel will protect. This corresponds to stunnel's "client = no" setting.
 
-      Examples:
-        10.0.0.10:8080
-        my.lumpysoupworks.local:2133
+            Adding this flag indicates that this end of the tunnel is where TLS
+            termination occurs and that the backend (connect port) is insecure.
 
-  -d  Optional; specifies that the connect endoint is a daemon that this secure
-      tunnel will protect. This corresponds to stunnel's "client = no" setting.
-
-      Adding this flag indicates that this end of the tunnel is where TLS
-      termination occurs and that the backend (connect port) is insecure.
-
-      Leaving this flag off indicates that clients will connect to this end of
-      the tunnel without TLS, and that this end of the tunnel establishes TLS
-      on behalf of the accepted clients.
+            Leaving this flag off indicates that clients will connect to this end of
+            the tunnel without TLS, and that this end of the tunnel establishes TLS
+            on behalf of the accepted clients.
 
 
 EXAMPLES:
@@ -43,49 +35,47 @@ EXAMPLES:
   1. Assume a legacy HTTP server on 10.0.0.10, place a secure tunnel in front
      of the insecure server, effectively establishing SSL/TLS:
 
-  > docker run -d -p 443:4442 --volume /my/local/file-system/keys:/pki/keys flitbit/alpine-stunnel -c 10.0.0.10:80 -t /pki/keys -d
-
-  2. Imagine providing access to a secure HTTPS server to a community of users
-     without requiring SSL/TLS:
-
-  > docker run -d -p 8000:4442 --volume /my/local/file-system/keys:/pki/keys flitbit/alpine-stunnel -c 10.0.0.10:443 -t /pki/keys
-
+  > docker run -d -p 443:4442 \
+      -v /my/local/file-system/ca.crt:/etc/pki/ca.crt \
+      -v /my/local/file-system/client.crt:/etc/pki/client.crt \
+      -v /my/local/file-system/client.key:/etc/pki/client.key \
+      -e ACCEPT="0.0.0.0:4442"
+      -e CACERT="/etc/pki/ca.crt" \
+      -e CERT="/etc/pki/client.crt" \
+      -e KEY="/etc/pki/ca.key" \
+      -e CONNECT="10.0.0.10:80" \
+      -e CLIENT="no" \
+      aloha2you/stunnel
 EOT
 }
 
-while getopts ":hd:c:s:t:" opt; do
-  case $opt in
-    h) usage;;
-    c) CONNECT=$OPTARG;;
-    s) SERVICE=$OPTARG;;
-    t) TLS_PATH=$OPTARG;;
-    d) CLIENT=no;;
-    -) break;;
-    \?) printf '\nInvalid option: -%s\n' ${OPTARG} 1>&2; exit 1;;
-    :) printf '\nOption: -%s requires an argument\n' ${OPTARG} 1>&2; exit 1;;
-  esac
-done
-
-shift $(($OPTIND - 1))
 
 [[ -z ${CONNECT} ]] &&\
-  printf '\nMissing required option: -c <connect-port>\n' 1>&2 &&\
+  printf '\nMissing environment variable: CONNECT\n' 1>&2 &&\
   usage && exit 1
 
-[[ -z ${TLS_PATH} ]] &&\
-  printf '\nMissing required option: -t <tls-path>\n' 1>&2 &&\
+[[ -z ${CA_CERT} ]] &&\
+  printf '\nMissing environment variable: CA_CERT\n' 1>&2 &&\
   usage && exit 1
 
-ACCEPT=${ACCEPT:-$(getent hosts ${HOSTNAME} | awk '{print $1}'):4442}
+[[ -z ${CERT} ]] &&\
+  printf '\nMissing environment variable: CERT\n' 1>&2 &&\
+  usage && exit 1
+
+[[ -z ${KEY} ]] &&\
+  printf '\nMissing environment variable: KEY\n' 1>&2 &&\
+  usage && exit 1
+
+ACCEPT=${ACCEPT:-0.0.0.0:4442}
 CLIENT=${CLIENT:-yes}
 
 mkdir -p /etc/stunnel.d
 
 # Generate a simple stunnel configuration.
 cat << EOF > /etc/stunnel.d/stunnel.conf
-cert = ${TLS_PATH}/cert.pem
-key = ${TLS_PATH}/key.pem
-cafile = ${TLS_PATH}/ca.pem
+cert = ${CERT}
+key = ${KEY}
+cafile = ${CA_CERT}
 verify = 2
 socket = l:TCP_NODELAY=1
 socket = r:TCP_NODELAY=1
